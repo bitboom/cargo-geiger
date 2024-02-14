@@ -3,8 +3,11 @@ use super::{
     IncludeTests, RsFileMetrics,
 };
 
-use syn::{visit, Expr, ImplItemMethod, ItemFn, ItemImpl, ItemMod, ItemTrait};
 use quote::quote;
+use syn::{
+    visit, Expr, ExprUnsafe, ImplItemMethod, ItemFn, ItemImpl, ItemMod,
+    ItemTrait,
+};
 
 pub struct GeigerSynVisitor {
     /// Count unsafe usage inside tests
@@ -69,17 +72,8 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
         match i {
             Expr::Unsafe(i) => {
                 self.enter_unsafe_scope();
-                let mut block_start = 0;
-
-                if self.unsafe_scopes > 0 {
-                    block_start = self.metrics.counters.exprs.unsafe_;
-                    print!("{}", quote!(#i).to_string());
-                }
-
-                visit::visit_expr_unsafe(self, i);
+                self.visit_expr_unsafe(i);
                 self.exit_unsafe_scope();
-                let block_end = self.metrics.counters.exprs.unsafe_;
-                println!(" - {}", block_end - block_start);
             }
             Expr::Path(_) | Expr::Lit(_) => {
                 // Do not count. The expression `f(x)` should count as one
@@ -95,6 +89,20 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
                 visit::visit_expr(self, other);
             }
         }
+    }
+
+    fn visit_expr_unsafe(&mut self, i: &ExprUnsafe) {
+        print!("{}", quote!(#i).to_string());
+        let block_start = self.metrics.counters.exprs.unsafe_;
+        for stmt in &i.block.stmts {
+            self.visit_stmt(stmt);
+        }
+        let block_end = self.metrics.counters.exprs.unsafe_;
+        println!(
+            " - stmt: {}, expr: {}",
+            &i.block.stmts.len(),
+            block_end - block_start
+        );
     }
 
     fn visit_item_mod(&mut self, i: &ItemMod) {
