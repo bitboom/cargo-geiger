@@ -5,8 +5,8 @@ use super::{
 
 use quote::quote;
 use syn::{
-    visit, Expr, ExprUnsafe, ImplItemMethod, ItemFn, ItemImpl, ItemMod,
-    ItemTrait,
+    visit, Expr, ExprUnary, ExprUnsafe, ImplItemMethod, ItemFn, ItemImpl,
+    ItemMod, ItemTrait, UnOp,
 };
 
 pub struct GeigerSynVisitor {
@@ -24,6 +24,8 @@ pub struct GeigerSynVisitor {
     /// This is needed since unsafe scopes can be nested and we need to know
     /// when we leave the outmost unsafe scope and get back into a safe scope.
     unsafe_scopes: u32,
+
+    unsafe_deref_op: bool,
 }
 
 impl GeigerSynVisitor {
@@ -32,6 +34,7 @@ impl GeigerSynVisitor {
             include_tests,
             metrics: Default::default(),
             unsafe_scopes: 0,
+            unsafe_deref_op: false,
         }
     }
 
@@ -98,11 +101,27 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
             self.visit_stmt(stmt);
         }
         let block_end = self.metrics.counters.exprs.unsafe_;
-        println!(
-            " - stmt: {}, expr: {}",
+        print!(
+            " - stmt: {}, expr: {} ",
             &i.block.stmts.len(),
             block_end - block_start
         );
+
+        if self.unsafe_deref_op {
+            println!("(Dereference Operation)");
+            self.unsafe_deref_op = false;
+        } else {
+            println!("");
+        }
+    }
+
+    fn visit_expr_unary(&mut self, i: &ExprUnary) {
+        if self.unsafe_scopes > 0 {
+            if let UnOp::Deref(_) = i.op {
+                self.unsafe_deref_op = true;
+            }
+        }
+        visit::visit_expr_unary(self, i);
     }
 
     fn visit_item_mod(&mut self, i: &ItemMod) {
