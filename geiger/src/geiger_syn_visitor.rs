@@ -25,7 +25,7 @@ pub struct GeigerSynVisitor {
     /// when we leave the outmost unsafe scope and get back into a safe scope.
     unsafe_scopes: u32,
 
-    unsafe_deref_op: bool,
+    has_unsafe_deref: bool,
 }
 
 impl GeigerSynVisitor {
@@ -34,7 +34,7 @@ impl GeigerSynVisitor {
             include_tests,
             metrics: Default::default(),
             unsafe_scopes: 0,
-            unsafe_deref_op: false,
+            has_unsafe_deref: false,
         }
     }
 
@@ -60,12 +60,30 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
         }
         let unsafe_fn =
             item_fn.sig.unsafety.is_some() || has_unsafe_attributes(item_fn);
+        let block_start = self.metrics.counters.exprs.unsafe_;
         if unsafe_fn {
+            if item_fn.sig.unsafety.is_some() {
+                print!("{}", quote!(#item_fn).to_string());
+            }
             self.enter_unsafe_scope()
         }
         self.metrics.counters.functions.count(unsafe_fn);
         visit::visit_item_fn(self, item_fn);
         if item_fn.sig.unsafety.is_some() {
+            let block_end = self.metrics.counters.exprs.unsafe_;
+            print!(
+                " - stmt: {}, expr: {} ",
+                &item_fn.block.stmts.len(),
+                block_end - block_start
+            );
+
+            if self.has_unsafe_deref {
+                println!("(Dereference Operation: Unsafe Function)");
+                self.has_unsafe_deref = false;
+            } else {
+                println!("");
+            }
+
             self.exit_unsafe_scope()
         }
     }
@@ -107,9 +125,9 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
             block_end - block_start
         );
 
-        if self.unsafe_deref_op {
-            println!("(Dereference Operation)");
-            self.unsafe_deref_op = false;
+        if self.has_unsafe_deref {
+            println!("(Dereference Operation: Unsafe Block)");
+            self.has_unsafe_deref = false;
         } else {
             println!("");
         }
@@ -118,7 +136,7 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
     fn visit_expr_unary(&mut self, i: &ExprUnary) {
         if self.unsafe_scopes > 0 {
             if let UnOp::Deref(_) = i.op {
-                self.unsafe_deref_op = true;
+                self.has_unsafe_deref = true;
             }
         }
         visit::visit_expr_unary(self, i);
