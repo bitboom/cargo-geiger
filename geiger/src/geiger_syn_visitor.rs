@@ -165,7 +165,9 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
     }
 
     fn visit_impl_item_method(&mut self, i: &ImplItemMethod) {
+        let block_start = self.metrics.counters.exprs.unsafe_;
         if i.sig.unsafety.is_some() {
+            print!("{}", quote!(#i).to_string());
             self.enter_unsafe_scope()
         }
         self.metrics
@@ -174,6 +176,19 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
             .count(i.sig.unsafety.is_some());
         visit::visit_impl_item_method(self, i);
         if i.sig.unsafety.is_some() {
+            let block_end = self.metrics.counters.exprs.unsafe_;
+            print!(
+                " - stmt: {}, expr: {} ",
+                &i.block.stmts.len(),
+                block_end - block_start
+            );
+
+            if self.has_unsafe_deref {
+                println!("(Dereference Operation: Unsafe Method)");
+                self.has_unsafe_deref = false;
+            } else {
+                println!("");
+            }
             self.exit_unsafe_scope()
         }
     }
