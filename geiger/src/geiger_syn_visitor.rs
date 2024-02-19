@@ -72,7 +72,7 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
         if item_fn.sig.unsafety.is_some() {
             let block_end = self.metrics.counters.exprs.unsafe_;
             print!(
-                " - stmt: {}, expr: {} ",
+                " ~ stmt: {}, expr: {} ",
                 &item_fn.block.stmts.len(),
                 block_end - block_start
             );
@@ -120,7 +120,7 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
         }
         let block_end = self.metrics.counters.exprs.unsafe_;
         print!(
-            " - stmt: {}, expr: {} ",
+            " ~ stmt: {}, expr: {} ",
             &i.block.stmts.len(),
             block_end - block_start
         );
@@ -178,7 +178,7 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
         if i.sig.unsafety.is_some() {
             let block_end = self.metrics.counters.exprs.unsafe_;
             print!(
-                " - stmt: {}, expr: {} ",
+                " ~ stmt: {}, expr: {} ",
                 &i.block.stmts.len(),
                 block_end - block_start
             );
