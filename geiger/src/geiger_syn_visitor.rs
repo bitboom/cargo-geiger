@@ -25,7 +25,43 @@ pub struct GeigerSynVisitor {
     /// when we leave the outmost unsafe scope and get back into a safe scope.
     unsafe_scopes: u32,
 
-    has_unsafe_deref: bool,
+    unsafe_stat: UnsafeStat,
+}
+
+#[derive(Debug)]
+enum BlockType {
+    Inner,
+    Function,
+    Method,
+}
+
+struct UnsafeStat {
+    expr_prev: usize,
+    expr_curr: usize,
+    stmt: usize,
+    block_type: BlockType,
+    block: String,
+    has_deref: bool,
+}
+
+impl UnsafeStat {
+    fn stat(&mut self) {
+        // block ~ block_type ~ expr ~ stmt ~ reason
+        print!(
+            "{} ~ {:?} ~ {} ~ {}",
+            self.block,
+            self.block_type,
+            self.expr_curr - self.expr_prev,
+            self.stmt
+        );
+
+        if self.has_deref {
+            println!(" ~ Dereference Operation");
+            self.has_deref = false;
+        } else {
+            println!("");
+        }
+    }
 }
 
 impl GeigerSynVisitor {
@@ -34,7 +70,14 @@ impl GeigerSynVisitor {
             include_tests,
             metrics: Default::default(),
             unsafe_scopes: 0,
-            has_unsafe_deref: false,
+            unsafe_stat: UnsafeStat {
+                expr_prev: 0,
+                expr_curr: 0,
+                stmt: 0,
+                block_type: BlockType::Inner,
+                block: "".to_string(),
+                has_deref: false,
+            },
         }
     }
 
@@ -42,8 +85,24 @@ impl GeigerSynVisitor {
         self.unsafe_scopes += 1;
     }
 
+    fn init_unsafe_stat(
+        &mut self,
+        block_type: BlockType,
+        block: String,
+        stmt: usize,
+    ) {
+        self.unsafe_stat.block_type = block_type;
+        self.unsafe_stat.block = block;
+        self.unsafe_stat.expr_prev =
+            self.metrics.counters.exprs.unsafe_ as usize;
+        self.unsafe_stat.stmt = stmt;
+    }
+
     pub fn exit_unsafe_scope(&mut self) {
         self.unsafe_scopes -= 1;
+        self.unsafe_stat.expr_curr =
+            self.metrics.counters.exprs.unsafe_ as usize;
+        self.unsafe_stat.stat();
     }
 }
 
@@ -60,30 +119,17 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
         }
         let unsafe_fn =
             item_fn.sig.unsafety.is_some() || has_unsafe_attributes(item_fn);
-        let block_start = self.metrics.counters.exprs.unsafe_;
         if unsafe_fn {
-            if item_fn.sig.unsafety.is_some() {
-                print!("{}", quote!(#item_fn).to_string());
-            }
-            self.enter_unsafe_scope()
+            self.init_unsafe_stat(
+                BlockType::Function,
+                quote!(#item_fn).to_string(),
+                item_fn.block.stmts.len(),
+            );
+            self.enter_unsafe_scope();
         }
         self.metrics.counters.functions.count(unsafe_fn);
         visit::visit_item_fn(self, item_fn);
         if item_fn.sig.unsafety.is_some() {
-            let block_end = self.metrics.counters.exprs.unsafe_;
-            print!(
-                " ~ stmt: {}, expr: {} ",
-                &item_fn.block.stmts.len(),
-                block_end - block_start
-            );
-
-            if self.has_unsafe_deref {
-                println!("(Dereference Operation: Unsafe Function)");
-                self.has_unsafe_deref = false;
-            } else {
-                println!("");
-            }
-
             self.exit_unsafe_scope()
         }
     }
@@ -113,30 +159,20 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
     }
 
     fn visit_expr_unsafe(&mut self, i: &ExprUnsafe) {
-        print!("{}", quote!(#i).to_string());
-        let block_start = self.metrics.counters.exprs.unsafe_;
+        self.init_unsafe_stat(
+            BlockType::Inner,
+            quote!(#i).to_string(),
+            i.block.stmts.len(),
+        );
         for stmt in &i.block.stmts {
             self.visit_stmt(stmt);
-        }
-        let block_end = self.metrics.counters.exprs.unsafe_;
-        print!(
-            " ~ stmt: {}, expr: {} ",
-            &i.block.stmts.len(),
-            block_end - block_start
-        );
-
-        if self.has_unsafe_deref {
-            println!("(Dereference Operation: Unsafe Block)");
-            self.has_unsafe_deref = false;
-        } else {
-            println!("");
         }
     }
 
     fn visit_expr_unary(&mut self, i: &ExprUnary) {
         if self.unsafe_scopes > 0 {
             if let UnOp::Deref(_) = i.op {
-                self.has_unsafe_deref = true;
+                self.unsafe_stat.has_deref = true;
             }
         }
         visit::visit_expr_unary(self, i);
@@ -165,10 +201,13 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
     }
 
     fn visit_impl_item_method(&mut self, i: &ImplItemMethod) {
-        let block_start = self.metrics.counters.exprs.unsafe_;
         if i.sig.unsafety.is_some() {
-            print!("{}", quote!(#i).to_string());
-            self.enter_unsafe_scope()
+            self.init_unsafe_stat(
+                BlockType::Method,
+                quote!(#i).to_string(),
+                i.block.stmts.len(),
+            );
+            self.enter_unsafe_scope();
         }
         self.metrics
             .counters
@@ -176,19 +215,6 @@ impl<'ast> visit::Visit<'ast> for GeigerSynVisitor {
             .count(i.sig.unsafety.is_some());
         visit::visit_impl_item_method(self, i);
         if i.sig.unsafety.is_some() {
-            let block_end = self.metrics.counters.exprs.unsafe_;
-            print!(
-                " ~ stmt: {}, expr: {} ",
-                &i.block.stmts.len(),
-                block_end - block_start
-            );
-
-            if self.has_unsafe_deref {
-                println!("(Dereference Operation: Unsafe Method)");
-                self.has_unsafe_deref = false;
-            } else {
-                println!("");
-            }
             self.exit_unsafe_scope()
         }
     }
