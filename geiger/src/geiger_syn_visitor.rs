@@ -59,7 +59,7 @@ impl UnsafeStat {
             println!(" ~ Dereference Operation");
             self.has_deref = false;
         } else {
-            println!("");
+            println!(" ~ Uncategorized");
         }
     }
 }
