@@ -106,6 +106,7 @@ where
             {
                 return;
             }
+            // TODO: Pass pkg_id & path to avoid adding hint from the outside of geiger
             match find_unsafe_in_file(&path_buf, include_tests) {
                 Err(error) => {
                     handle_unsafe_in_file_error(
@@ -117,6 +118,7 @@ where
                 Ok(rs_file_metrics) => {
                     let package_id_to_metrics =
                         &mut package_id_to_metrics.lock().unwrap();
+                    // TODO: Add additioanl data to metrics
                     update_package_id_to_metrics_with_rs_file_metrics(
                         is_entry_point,
                         package_id,
